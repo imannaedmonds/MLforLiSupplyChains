@@ -1,6 +1,6 @@
 #=
 Original Authors: Yasmine Alonso, Mansur Arief, Anthony Corso, Jef Caers, and Mykel Kochenderfer
-Extended by: CJ Oshiro, Mansur Arief, Mykel Kochenderfer
+Extended by: Anna Edmonds and Amelia Hardy
 ----------------
 =#
 
