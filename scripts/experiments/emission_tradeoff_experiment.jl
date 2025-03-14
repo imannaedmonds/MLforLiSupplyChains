@@ -207,7 +207,7 @@ function compute_tradeoff(alpha=1, stochastic_price=false, train_same=true)
 end
 
 function main()
-    alpha_values = collect(LinRange(0, 1, 10))
+    alpha_values = collect(LinRange(0, 1, 20))
     results_rand = Dict()
     results_pomcpow = Dict()
     emissions = []
