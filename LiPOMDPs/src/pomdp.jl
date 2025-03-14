@@ -327,7 +327,7 @@ function initialize_belief_import_only(up::LiBeliefUpdater)
     return LiBelief(deposit_dists, t, V_tot, I_tot, have_mined)
 end
 
-POMDPs.initialize_belief(up::Updater, dist) = POMDPs.initialize_belief(up)
+POMDPs.initialize_belief(up::LiBeliefUpdater, dist) = POMDPs.initialize_belief(up)
 
 
 function POMDPs.update(up::Updater, b::LiBelief, a::Action, o::Vector{Float64})
