@@ -20,7 +20,6 @@ This script creates a comprehensive comparison of policy types for the LiPOMDP:
 
 It generates a single Pareto curve plot with all policies for easy comparison.
 """
-
 rng = MersenneTwister(1)
 
 function compute_metrics(samples)
@@ -145,6 +144,9 @@ function compute_mcts_results(param_values, param_name="alpha";
         # Solve the MDP
         mcts_planner = solve(mcts_solver, mdp)
         
+        println("Full type of DPWPlanner:")
+        println(typeof(mcts_planner))
+
         # Run experiment
         results[param_value] = experiment(mcts_planner, pomdp, n_reps, max_steps)
     end
@@ -176,6 +178,7 @@ function compute_pomcpow_results(param_values, param_name="alpha";
             max_depth = param_value
         else
             max_depth = 10 # default
+
         end
         
         # Configure POMCPOW solver
@@ -418,7 +421,8 @@ function main()
     
     # Create comprehensive Pareto plot
     println("\nCreating comprehensive Pareto plot...")
-    p = plot_comprehensive_pareto(mcts_results, pomcpow_results, explore_results, import_results, random_results)
+
+    p = plot_comprehensive_pareto(mcts_results, pomcpow_results, explore_results, import_results)
     
     println("\nAnalysis complete! Results saved to 'comprehensive_policy_comparison.png'")
     
@@ -427,14 +431,10 @@ function main()
         "mcts" => mcts_results,
         "pomcpow" => pomcpow_results,
         "explore" => explore_results,
-        "import" => import_results,
-        "random" => random_results
+        "import" => import_results
     )
     
     return results, p
 end
 
-# Run the main function if executed as a script
-if abspath(PROGRAM_FILE) == @__FILE__
-    main()
-end
+main()

@@ -196,13 +196,13 @@ end
 function ImportOnlyPolicy(pomdp::LiPOMDP, explore_steps::Int64, curr_steps::Int64=1)
     n_deposits = pomdp.n_deposits
     explored_sites = fill(false, n_deposits)  # Initially no sites are explored
-    return ImportOnlyPolicy(pomdp=pomdp, explore_steps=explore_steps, 
-                          curr_steps=curr_steps, explored_sites=explored_sites)
+    return ImportOnlyPolicy(pomdp=pomdp, explore_steps=explore_steps,
+        curr_steps=curr_steps, explored_sites=explored_sites)
 end
 
 function POMDPs.action(p::ImportOnlyPolicy, b::LiBelief)
     chosen_action = nothing
-    
+
     # Phase 1: Exploration phase
     if p.curr_steps <= p.explore_steps
         # Find the next unexplored site
@@ -213,7 +213,7 @@ function POMDPs.action(p::ImportOnlyPolicy, b::LiBelief)
                 break
             end
         end
-        
+
         # If all sites have been explored but we're still in exploration phase,
         # pick a random site to explore again
         if isnothing(chosen_action)
@@ -224,17 +224,17 @@ function POMDPs.action(p::ImportOnlyPolicy, b::LiBelief)
         # Phase 2: Mining phase - Only consider foreign deposits (3 and 4)
         foreign_indices = [3, 4]  # Indices for foreign deposits
         scores = fill(-Inf, p.pomdp.n_deposits)
-        
+
         for i in foreign_indices
             if can_explore_here(Action("MINE$(i)"), b)
                 # Prioritize by estimated volume
                 scores[i] = mean(b.deposit_dists[i])
             end
         end
-        
+
         # Find the foreign deposit with highest estimated volume
         max_score, best_mine = findmax(scores)
-        
+
         # If a valid foreign site was found
         if max_score > -Inf
             chosen_action = Action("MINE$(best_mine)")
@@ -243,7 +243,7 @@ function POMDPs.action(p::ImportOnlyPolicy, b::LiBelief)
             chosen_action = Action("DONOTHING")
         end
     end
-    
+
     p.curr_steps += 1
     return chosen_action
 end
@@ -260,7 +260,7 @@ end
 function POMDPs.action(p::NoExplorationPolicy, b::LiBelief)
     # Calculate the expected amount of lithium at each deposit based on current belief
     scores = zeros(p.pomdp.n_deposits)
-    
+
     for i in 1:p.pomdp.n_deposits
         if can_explore_here(Action("MINE$(i)"), b)
             # Use mean of the belief distribution for the deposit
@@ -270,10 +270,10 @@ function POMDPs.action(p::NoExplorationPolicy, b::LiBelief)
         end
         scores[i] = score
     end
-    
+
     # Mine the deposit with the highest expected amount
     _, best_mine = findmax(scores)
-    
+
     return Action("MINE$(best_mine)")
 end
 
