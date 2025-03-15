@@ -1,7 +1,5 @@
 #=
 Modeling the US Path to Lithium Self Sufficiency Using POMDPs
-Summer 2023
-Yasmine Alonso, Mansur Arief, Anthony Corso, Jef Caers, and Mykel Kochenderfer
 
 File: utils.jl
 ----------------

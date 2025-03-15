@@ -1,6 +1,6 @@
 #=
 Original Authors: Yasmine Alonso, Mansur Arief, Anthony Corso, Jef Caers, and Mykel Kochenderfer
-Extended by: Anna Edmonds and Amelia Hardy
+Extended by: Anna Edmonds
 ----------------
 =#
 
@@ -39,7 +39,8 @@ end
     V_deposit_min::Float64 #min and max amount per singular deposit
     V_deposit_max::Float64
     obj_weights::Vector{Float64}  # how we want to weight each component of the reward
-    CO2_emissions::Vector{Float64}  #[C₁, C₂, C₃, C₄] amount of CO2 each site emits
+    CO2_emissions::Int64 
+    CO2_cost::Int64  
     null_state::State
     init_state::State
     site_to_dist::Dict
@@ -66,10 +67,11 @@ function initialize_lipomdp(;
     V_deposit_min=0.0,
     V_deposit_max=10.0,
     obj_weights=[0.25, 0.25, 0.25, 0.25, 0.25],
-    CO2_emissions=[5, 7, 2, 5],
+    CO2_emissions= 15, #per a thousand ton you emit 15 thousand tons of CO2
+    CO2_cost = 185,  #per a thousand ton your cost is 185,000
     null_state=State([-1, -1, -1, -1], -1, -1, -1, [true, true, true, true]),
-    init_state=State([16.0, 60.0, 60.0, 50.0], 1, 0.0, 0.0, [false, false, false, false]), # SilverPeak and ThackerPass are domestic, Greenbushes and Pilgangoora are foreign #TODO; find some reference
-    site_to_dist=Dict(1=>Normal(50,3), 2=>Normal(70,10), 3=>Normal(52,5), 4=>Normal(60,4)),
+    init_state=State([16.0, 60.0, 60.0, 50.0], 1, 0.0, 0.0, [false, false, false, false]), # a thousand tons a year SilverPeak and ThackerPass  are domestic, Greenbushes and Pilgangoora are foreign 
+    site_to_dist=Dict(1=>Normal(15000,3), 2=>Normal(70000,10), 3=>Normal(40000,5), 4=>Normal(10000,4)), #a thousand ton of Li -- a thousand dollars (1k of Li is approx 10M)
     stochastic_price=false,
     alpha=1, # Default reward
     compute_tradeoff=false
@@ -93,6 +95,7 @@ function initialize_lipomdp(;
         V_deposit_max=V_deposit_max,
         obj_weights=obj_weights,
         CO2_emissions=CO2_emissions,
+        CO2_cost=CO2_cost,
         null_state=null_state,
         init_state=init_state,
         site_to_dist=site_to_dist,

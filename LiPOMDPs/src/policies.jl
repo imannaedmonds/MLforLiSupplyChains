@@ -113,7 +113,7 @@ function POMDPs.action(p::ExploreNStepsPolicy, b::LiBelief)
         scores = zeros(p.pomdp.n_deposits)
         for i in 1:p.pomdp.n_deposits
             if can_explore_here(Action("MINE$(i)"), b)
-                score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions[i]
+                score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions
             else
                 score = -Inf
             end
@@ -154,7 +154,7 @@ function POMDPs.action(p::EmissionAwarePolicy, b::LiBelief)
     scores = zeros(p.pomdp.n_deposits)
     for i in 1:p.pomdp.n_deposits
         if can_explore_here(Action("MINE$(i)"), b)
-            score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions[i]
+            score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions
         else
             score = -Inf
         end

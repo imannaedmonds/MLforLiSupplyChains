@@ -60,7 +60,10 @@ export
     compute_r2,
     compute_r3,
     compute_r4,
-    compute_r5
+    compute_r5,
+    compute_npv,             # Add these new functions
+    compute_emission_cost,   # to your exports
+    compute_npv_emission_tradeoff
 include("pomdp.jl")
 
 end #module

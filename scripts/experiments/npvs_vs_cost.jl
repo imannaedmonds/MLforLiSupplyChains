@@ -18,8 +18,9 @@ This script creates a comprehensive comparison of policy types for the LiPOMDP:
 - ExploreNSteps
 - ImportOnly
 
-It generates a single Pareto curve plot with all policies for easy comparison.
+It generates a Pareto curve plot comparing NPV versus emission costs.
 """
+
 rng = MersenneTwister(1)
 
 function compute_metrics(samples)
@@ -29,20 +30,20 @@ function compute_metrics(samples)
     return (mean=sample_mean, se=sample_se)
 end
 
-# Experiment function to evaluate a planner
+# Modified experiment function to track emission costs and NPV
 function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief=nothing)
     reward_tot_all = []
     reward_disc_all = []
-    emission_tot_all = []
-    emission_disc_all = []
+    npv_all = []  # Track NPV
+    emission_cost_all = []  # Track emission costs
     domestic_tot_all = []
     imported_tot_all = []
 
     for t in tqdm(1:n_reps)
         reward_tot = 0.0
         reward_disc = 0.0
-        emission_tot = 0.0
-        emission_disc = 0.0
+        npv_tot = 0.0
+        emission_cost_tot = 0.0
         vol_tot = 0.0    # mined domestically
         imported_tot = 0.0  # imported/mined internationally
         disc = 1.0
@@ -60,10 +61,13 @@ function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief
             reward_tot += r
             reward_disc += r * disc
 
-            # Compute emissions and discount emissions
-            e = get_action_emission(eval_pomdp, a)
-            emission_tot += e
-            emission_disc += e * disc
+            # Calculate and track NPV separately
+            npv = compute_npv(eval_pomdp, s, a)
+            npv_tot += npv * disc
+            
+            # Calculate and track emission costs separately
+            emission_cost = -compute_emission_cost(eval_pomdp, s, a)  # Negate to get positive cost
+            emission_cost_tot += emission_cost * disc
 
             # Track domestic vs imported mining
             if a.a == "MINE1" || a.a == "MINE2"
@@ -78,8 +82,8 @@ function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief
         # Store results from this repetition
         push!(reward_tot_all, reward_tot)
         push!(reward_disc_all, reward_disc)
-        push!(emission_tot_all, emission_tot)
-        push!(emission_disc_all, emission_disc)
+        push!(npv_all, npv_tot)
+        push!(emission_cost_all, emission_cost_tot)
         push!(domestic_tot_all, vol_tot)
         push!(imported_tot_all, imported_tot)
     end
@@ -88,8 +92,8 @@ function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief
     results = Dict(
         "Total Reward" => compute_metrics(reward_tot_all),
         "Disc. Reward" => compute_metrics(reward_disc_all),
-        "Total Emissions" => compute_metrics(emission_tot_all),
-        "Disc. Emissions" => compute_metrics(emission_disc_all),
+        "NPV" => compute_metrics(npv_all),
+        "Emission Cost" => compute_metrics(emission_cost_all),
         "Total Domestic" => compute_metrics(domestic_tot_all),
         "Total Imported" => compute_metrics(imported_tot_all)
     )
@@ -97,15 +101,15 @@ function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief
     return results
 end
 
-# MCTS generation function
-function compute_mcts_results(param_values, param_name="alpha"; 
-                             stochastic_price=false, max_steps=30, n_reps=20)
+# MCTS generation function for NPV-emission tradeoff
+function compute_mcts_npv_emission_results(alpha_values, param_name="alpha"; 
+                                          stochastic_price=false, max_steps=30, n_reps=20)
     results = Dict()
     
-    for param_value in tqdm(param_values)
+    for alpha in tqdm(alpha_values)
         # Initialize POMDP
         if param_name == "alpha"
-            pomdp = initialize_lipomdp(alpha=param_value, stochastic_price=stochastic_price, compute_tradeoff=true)
+            pomdp = initialize_lipomdp(alpha=alpha, stochastic_price=stochastic_price, compute_tradeoff=true)
         else
             pomdp = initialize_lipomdp(stochastic_price=stochastic_price, compute_tradeoff=true)
         end
@@ -120,15 +124,15 @@ function compute_mcts_results(param_values, param_name="alpha";
         
         # Configure MCTS solver - adjust parameters based on param_name
         if param_name == "depth"
-            depth = param_value
+            depth = alpha  # Use alpha as depth parameter
         else
             depth = 10  # default
         end
         
         if param_name == "iterations"
-            n_iterations = param_value
+            n_iterations = alpha  # Use alpha as iterations parameter
         else
-            n_iterations = 100  # default
+            n_iterations = 800  # default
         end
         
         mcts_solver = DPWSolver(
@@ -144,41 +148,39 @@ function compute_mcts_results(param_values, param_name="alpha";
         # Solve the MDP
         mcts_planner = solve(mcts_solver, mdp)
         
-        println("Full type of DPWPlanner:")
-        println(typeof(mcts_planner))
+        println("Computing MCTS results for alpha = $alpha")
 
         # Run experiment
-        results[param_value] = experiment(mcts_planner, pomdp, n_reps, max_steps)
+        results[alpha] = experiment(mcts_planner, pomdp, n_reps, max_steps)
     end
     
     return results
 end
 
-# POMCPOW generation function
-function compute_pomcpow_results(param_values, param_name="alpha"; 
-                                stochastic_price=false, max_steps=30, n_reps=20)
+# POMCPOW generation function for NPV-emission tradeoff
+function compute_pomcpow_npv_emission_results(alpha_values, param_name="alpha"; 
+                                             stochastic_price=false, max_steps=30, n_reps=20)
     results = Dict()
     
-    for param_value in tqdm(param_values)
+    for alpha in tqdm(alpha_values)
         # Initialize POMDP
         if param_name == "alpha"
-            pomdp = initialize_lipomdp(alpha=param_value, stochastic_price=stochastic_price, compute_tradeoff=true)
+            pomdp = initialize_lipomdp(alpha=alpha, stochastic_price=stochastic_price, compute_tradeoff=true)
         else
             pomdp = initialize_lipomdp(stochastic_price=stochastic_price, compute_tradeoff=true)
         end
         
         # Configure solver parameters based on param_name
         if param_name == "tree_queries"
-            tree_queries = param_value
+            tree_queries = alpha  # Use alpha as tree_queries parameter
         else
-            tree_queries = 100  # default
+            tree_queries = 1000  # default
         end
         
         if param_name == "max_depth"
-            max_depth = param_value
+            max_depth = alpha  # Use alpha as max_depth parameter
         else
-            max_depth = 10 # default
-
+            max_depth = 15  # default
         end
         
         # Configure POMCPOW solver
@@ -195,15 +197,18 @@ function compute_pomcpow_results(param_values, param_name="alpha";
         # Solve the POMDP
         pomcpow_planner = solve(solver, pomdp)
         
+        println("Computing POMCPOW results for alpha = $alpha")
+        
         # Run experiment
-        results[param_value] = experiment(pomcpow_planner, pomdp, n_reps, max_steps)
+        results[alpha] = experiment(pomcpow_planner, pomdp, n_reps, max_steps)
     end
     
     return results
 end
 
-# ExploreNSteps generation function
-function compute_explore_n_steps_results(step_values; stochastic_price=false, max_steps=30, n_reps=20)
+# ExploreNSteps generation function for NPV-emission tradeoff
+function compute_explore_n_steps_npv_emission_results(step_values; 
+                                                    stochastic_price=false, max_steps=30, n_reps=20)
     results = Dict()
     
     for num_steps in tqdm(step_values)
@@ -213,6 +218,8 @@ function compute_explore_n_steps_results(step_values; stochastic_price=false, ma
         # Create policy
         policy = ExploreNStepsPolicy(pomdp=pomdp, explore_steps=num_steps, curr_steps=1)
         
+        println("Computing ExploreNSteps results for steps = $num_steps")
+        
         # Run experiment
         results[num_steps] = experiment(policy, pomdp, n_reps, max_steps)
     end
@@ -220,8 +227,9 @@ function compute_explore_n_steps_results(step_values; stochastic_price=false, ma
     return results
 end
 
-# ImportOnly generation function
-function compute_import_only_results(step_values; stochastic_price=false, max_steps=30, n_reps=20)
+# ImportOnly generation function for NPV-emission tradeoff
+function compute_import_only_npv_emission_results(step_values; 
+                                                stochastic_price=false, max_steps=30, n_reps=20)
     results = Dict()
     
     for num_steps in tqdm(step_values)
@@ -235,6 +243,8 @@ function compute_import_only_results(step_values; stochastic_price=false, max_st
         # Create policy
         policy = ImportOnlyPolicy(pomdp=pomdp, explore_steps=num_steps)
         
+        println("Computing ImportOnly results for steps = $num_steps")
+        
         # Run experiment with custom belief
         results[num_steps] = experiment(policy, pomdp, n_reps, max_steps, initial_belief=initial_belief)
     end
@@ -242,18 +252,16 @@ function compute_import_only_results(step_values; stochastic_price=false, max_st
     return results
 end
 
-# Removed Random policy generation function
-
 # Process results for plotting
-function process_results_for_plot(results)
+function process_npv_emission_results_for_plot(results)
     param_values = sort(collect(keys(results)))
     
-    xs = [results[param]["Total Emissions"].mean for param in param_values]
-    ys = [results[param]["Total Domestic"].mean + results[param]["Total Imported"].mean for param in param_values]
-    xerr = [results[param]["Total Emissions"].se for param in param_values]
-    yerr = [sqrt(results[param]["Total Domestic"].se^2 + results[param]["Total Imported"].se^2) for param in param_values]
+    xs = [results[param]["Emission Cost"].mean for param in param_values]
+    ys = [results[param]["NPV"].mean for param in param_values]
+    xerr = [results[param]["Emission Cost"].se for param in param_values]
+    yerr = [results[param]["NPV"].se for param in param_values]
     
-    # Sort by emissions for better curve visualization
+    # Sort by emission cost for better curve visualization
     idxs = sortperm(xs)
     xs = xs[idxs]
     ys = ys[idxs]
@@ -264,18 +272,18 @@ function process_results_for_plot(results)
 end
 
 # Plot combined Pareto curve for all policies
-function plot_comprehensive_pareto(mcts_results, pomcpow_results, explore_results, import_results)
+function plot_comprehensive_npv_emission_pareto(mcts_results, pomcpow_results, explore_results, import_results)
     # Process all results
-    mcts_xs, mcts_ys, mcts_xerr, mcts_yerr = process_results_for_plot(mcts_results)
-    pomcpow_xs, pomcpow_ys, pomcpow_xerr, pomcpow_yerr = process_results_for_plot(pomcpow_results)
-    explore_xs, explore_ys, explore_xerr, explore_yerr = process_results_for_plot(explore_results)
-    import_xs, import_ys, import_xerr, import_yerr = process_results_for_plot(import_results)
+    mcts_xs, mcts_ys, mcts_xerr, mcts_yerr = process_npv_emission_results_for_plot(mcts_results)
+    pomcpow_xs, pomcpow_ys, pomcpow_xerr, pomcpow_yerr = process_npv_emission_results_for_plot(pomcpow_results)
+    explore_xs, explore_ys, explore_xerr, explore_yerr = process_npv_emission_results_for_plot(explore_results)
+    import_xs, import_ys, import_xerr, import_yerr = process_npv_emission_results_for_plot(import_results)
     
     # Create the plot
     p = plot(
-        xlabel="Total Emissions",
-        ylabel="Total Volume (Domestic + Imported)",
-        title="Comprehensive Pareto Comparison of all Policies",
+        xlabel="Emission Cost",
+        ylabel="Net Present Value",
+        title="NPV vs Emission Cost: Policy Comparison",
         legend=:topright,
         grid=true,
         gridalpha=0.3,
@@ -365,8 +373,6 @@ function plot_comprehensive_pareto(mcts_results, pomcpow_results, explore_result
         label=false
     )
     
-    # Random policy display removed
-    
     # Add a legend with policy descriptions
     annotate!(p, [
         (minimum(mcts_xs), maximum(mcts_ys) * 1.05, text("MCTS: Utilizes search tree with rollouts", :left, 8)),
@@ -376,12 +382,12 @@ function plot_comprehensive_pareto(mcts_results, pomcpow_results, explore_result
     ])
     
     # Save the figure
-    savefig(p, "comprehensive_policy_comparison.png")
+    savefig(p, "npv_emission_pareto_comparison.png")
     return p
 end
 
 function main()
-    println("Starting comprehensive policy comparison for LiPOMDP...")
+    println("Starting comprehensive policy comparison for LiPOMDP with NPV-Emission tradeoff...")
     
     # Define parameter values for each policy type
     alpha_values = collect(LinRange(0, 1, 10))  # For MCTS and POMCPOW
@@ -391,40 +397,49 @@ function main()
     stochastic_price = false
     max_steps = 30
     n_reps = 10  # Reduced for faster runtime
-    
-    # Generate results for all policy types
-    println("\nGenerating MCTS results...")
-    mcts_results = compute_mcts_results(alpha_values, "alpha", 
-                                       stochastic_price=stochastic_price,
-                                       max_steps=max_steps, 
-                                       n_reps=n_reps)
-    
-    println("\nGenerating POMCPOW results...")
-    pomcpow_results = compute_pomcpow_results(alpha_values, "alpha", 
-                                            stochastic_price=stochastic_price,
-                                            max_steps=max_steps, 
-                                            n_reps=n_reps)
-    
-    println("\nGenerating ExploreNSteps results...")
-    explore_results = compute_explore_n_steps_results(step_values, 
+
+    println("\nGenerating ExploreNSteps NPV-Emission results...")
+    explore_results = compute_explore_n_steps_npv_emission_results(step_values, 
                                                    stochastic_price=stochastic_price,
                                                    max_steps=max_steps, 
                                                    n_reps=n_reps)
     
-    println("\nGenerating ImportOnly results...")
-    import_results = compute_import_only_results(step_values, 
+    println("\nGenerating ImportOnly NPV-Emission results...")
+    import_results = compute_import_only_npv_emission_results(step_values, 
                                                stochastic_price=stochastic_price,
                                                max_steps=max_steps, 
                                                n_reps=n_reps)
     
-    # Random policy generation removed
+    # Generate results for all policy types
+    println("\nGenerating MCTS NPV-Emission results...")
+    mcts_results = compute_mcts_npv_emission_results(alpha_values, "alpha", 
+                                       stochastic_price=stochastic_price,
+                                       max_steps=max_steps, 
+                                       n_reps=n_reps)
+    
+    println("\nGenerating POMCPOW NPV-Emission results...")
+    pomcpow_results = compute_pomcpow_npv_emission_results(alpha_values, "alpha", 
+                                            stochastic_price=stochastic_price,
+                                            max_steps=max_steps, 
+                                            n_reps=n_reps)
+    
+    println("\nGenerating ExploreNSteps NPV-Emission results...")
+    explore_results = compute_explore_n_steps_npv_emission_results(step_values, 
+                                                   stochastic_price=stochastic_price,
+                                                   max_steps=max_steps, 
+                                                   n_reps=n_reps)
+    
+    println("\nGenerating ImportOnly NPV-Emission results...")
+    import_results = compute_import_only_npv_emission_results(step_values, 
+                                               stochastic_price=stochastic_price,
+                                               max_steps=max_steps, 
+                                               n_reps=n_reps)
     
     # Create comprehensive Pareto plot
-    println("\nCreating comprehensive Pareto plot...")
-
-    p = plot_comprehensive_pareto(mcts_results, pomcpow_results, explore_results, import_results)
+    println("\nCreating comprehensive NPV-Emission Pareto plot...")
+    p = plot_comprehensive_npv_emission_pareto(mcts_results, pomcpow_results, explore_results, import_results)
     
-    println("\nAnalysis complete! Results saved to 'comprehensive_policy_comparison.png'")
+    println("\nAnalysis complete! Results saved to 'npv_emission_pareto_comparison.png'")
     
     # Return all results
     results = Dict(
@@ -437,4 +452,5 @@ function main()
     return results, p
 end
 
+# Run the main function
 main()
