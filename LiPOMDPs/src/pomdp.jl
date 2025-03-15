@@ -1,6 +1,6 @@
 #=
 Original Authors: Yasmine Alonso, Mansur Arief, Anthony Corso, Jef Caers, and Mykel Kochenderfer
-Extended by: CJ Oshiro, Mansur Arief, Mykel Kochenderfer
+Extended by: CJ Oshiro, Mansur Arief, Mykel Kochenderfer, Anna Edmonds
 ----------------
 =#
 
@@ -86,14 +86,13 @@ function compute_r3(P::LiPOMDP, s::State, a::Action)
     end
     
     existing_emissions = 0
-    for i in 1:4
+    for i in 1:P.n_deposits
         if s.have_mined[i]
-            existing_emissions -= P.CO2_emissions[i]
+            existing_emissions -= P.CO2_emissions
         end
     end
 
     return new_emission + existing_emissions
-
 end
 
 function compute_r4(P::LiPOMDP, s::State, a::Action; demand_unfulfilled_penalty=-100)
@@ -103,12 +102,12 @@ end
 
 function compute_cashflow(P::LiPOMDP, s::State)
     reward = 0
-    for mine in s.have_mined
-        if mine
+    for i in 1:P.n_deposits
+        if s.have_mined[i]
             if P.stochastic_price
-                price = rand(P.site_to_dist[mine])
+                price = rand(P.site_to_dist[i])
             else
-                price = mean(P.site_to_dist[mine])
+                price = mean(P.site_to_dist[i])
             end
 
             reward += P.mine_output * price
@@ -134,6 +133,72 @@ function compute_r5(P::LiPOMDP, s::State, a::Action; capex_per_mine=-500, opex_p
     return reward
 end
 
+# New function for computing emission costs
+function compute_emission_cost(P::LiPOMDP, s::State, a::Action)
+    action_type = get_action_type(a) 
+    site_num = get_site_number(a)
+    
+    # Calculate new emissions for this action
+    emission_cost = 0
+    
+    # Check if this is a new mine action
+    if action_type == "MINE" && !s.have_mined[site_num]
+        # Calculate emission cost for new mining action
+        emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost
+    end
+    
+    # Calculate ongoing emission costs from already operating mines
+    for i in 1:P.n_deposits
+        if s.have_mined[i]
+            emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost
+        end
+    end
+    
+    return emission_cost
+end
+
+# New function for computing NPV
+function compute_npv(P::LiPOMDP, s::State, a::Action)
+    action_type = get_action_type(a)
+    site_num = get_site_number(a)
+    
+    # Calculate revenue from existing mines
+    revenue = compute_cashflow(P, s)
+    
+    # Calculate costs for operating mines
+    opex_per_mine = -25
+    capex_per_mine = -500
+    operating_costs = opex_per_mine * sum(s.have_mined)
+    
+    # Add capital expenditure for new mine
+    if action_type == "MINE" && !s.have_mined[site_num]
+        operating_costs += capex_per_mine
+    end
+    
+    # Calculate NPV as revenue minus costs
+    npv = revenue + operating_costs
+    
+    return npv
+end
+
+# New function for computing the NPV-emission cost tradeoff
+function compute_npv_emission_tradeoff(P::LiPOMDP, s::State, a::Action)
+    # Calculate emission costs (negative value)
+    emission_cost = compute_emission_cost(P, s, a)
+    
+    # Calculate NPV
+    npv = compute_npv(P, s, a)
+    
+    # Weighted sum based on alpha parameter
+    # alpha = 1: focus only on NPV
+    # alpha = 0: focus only on reducing emission costs
+    emission_scaling = 25 
+    emission_term = (1 - P.alpha) * emission_cost * emission_scaling
+    npv_term = P.alpha * npv
+    
+    return emission_term + npv_term
+end
+
 function compute_reward_tradeoff(P::LiPOMDP, s::State, a::Action)
     emissions_reward = P.alpha * compute_r3(P, s, a)
     volume_reward = (1 - P.alpha) * sum(compute_r2(P, s, a)) * 4.866658
@@ -141,15 +206,16 @@ function compute_reward_tradeoff(P::LiPOMDP, s::State, a::Action)
 end
 
 function POMDPs.reward(P::LiPOMDP, s::State, a::Action)
-
-    #domestic_mining_actions = [MINE1, MINE2]
-
     if isterminal(P, s)
         return 0
     end
 
-    if P.compute_tradeoff # Use tradeoff reward
-        return compute_reward_tradeoff(P, s, a)
+    if P.compute_tradeoff
+        if hasfield(typeof(P), :CO2_cost) # Check if we're using the new NPV-emission model
+            return compute_npv_emission_tradeoff(P, s, a)
+        else # Use the original tradeoff model
+            return compute_reward_tradeoff(P, s, a)
+        end
     end
 
     #TODO: move these to the problem struct
@@ -158,7 +224,6 @@ function POMDPs.reward(P::LiPOMDP, s::State, a::Action)
     capex_per_mine = -25
     opex_per_mine = -10
     material_price = 100
-
 
     # Obj #1: delay mining domestically P.t_goal years, and if we do that before P.t_goal, we are penalized
     r1 = compute_r1(P, s, a, domestic_mining_penalty=domestic_mining_penalty)
@@ -288,14 +353,6 @@ POMDPs.discount(P::LiPOMDP) = P.γ
 POMDPs.isterminal(P::LiPOMDP, s::State) = s == P.null_state || s.t >= P.time_horizon
 
 function POMDPs.initialize_belief(up::LiBeliefUpdater)
-#=
-    deposit_dists = [
-        Normal(up.P.init_state.deposits[1]),
-        Normal(up.P.init_state.deposits[2]),
-        Normal(up.P.init_state.deposits[3]),
-        Normal(up.P.init_state.deposits[4])
-    ]
-=#
     deposit_dists = fill(Normal(), up.P.n_deposits)
     for i in 1:up.P.n_deposits
         #initalized belief is a normal distribution centered around the true value, standard deviation is defaulted to one because we only give it a mean 
@@ -327,7 +384,7 @@ function initialize_belief_import_only(up::LiBeliefUpdater)
     return LiBelief(deposit_dists, t, V_tot, I_tot, have_mined)
 end
 
-POMDPs.initialize_belief(up::Updater, dist) = POMDPs.initialize_belief(up)
+POMDPs.initialize_belief(up::LiBeliefUpdater, dist) = POMDPs.initialize_belief(up)
 
 
 function POMDPs.update(up::Updater, b::LiBelief, a::Action, o::Vector{Float64})
@@ -345,11 +402,7 @@ function POMDPs.update(up::Updater, b::LiBelief, a::Action, o::Vector{Float64})
         bi_prime = Normal(μ_prime, σ_prime)
         
         # Default, not including updated belief
-        #belief = LiBelief([b.deposit_dists[1], b.deposit_dists[2], b.deposit_dists[3], b.deposit_dists[4]], b.t + 1, b.V_tot, b.I_tot, b.have_mined)
-        deposits = zeros(up.P.n_deposits)
-        n_deposits = P.n_deposits
-
-        deposits = [(b.deposit_dists[i]) for i in 1:n_deposits]
+        deposits = [(b.deposit_dists[i]) for i in 1:P.n_deposits]
 
         belief = LiBelief(deposits, b.t + 1, b.V_tot, b.I_tot, b.have_mined)
 
@@ -383,12 +436,7 @@ function POMDPs.update(up::Updater, b::LiBelief, a::Action, o::Vector{Float64})
             V_tot_prime += n_units_mined
         end
         
-        # Default, not including updated belief
-        #belief = LiBelief([b.deposit_dists[1], b.deposit_dists[2], b.deposit_dists[3], b.deposit_dists[4]], b.t + 1, V_tot_prime, I_tot_prime, [b.have_mined[1], b.have_mined[2], b.have_mined[3], b.have_mined[4]])
         n_deposits = P.n_deposits
-        deposits = zeros(n_deposits)
-        have_mined = zeros(n_deposits)
-        
         deposits = [(b.deposit_dists[i]) for i in 1:n_deposits]
         have_mined = [b.have_mined[i] for i in 1:n_deposits]
 

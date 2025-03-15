@@ -78,10 +78,10 @@ function POMDPs.action(p::EfficiencyPolicyWithUncertainty, b::LiBelief)
 
     # If we have explored all deposits, decide which one to mine that is allowed by the belief.
     # We will consider both the expected Lithium and the uncertainty in our decision.    
-    scores = zeros(p.pomdp.n)
-    for i in 1:p.pomdp.n
-        if can_explore_here(eval(Meta.parse("MINE$(i)")), b)
-            score = mean(b.v_dists[i]) - p.lambda * std(b.v_dists[i])
+    scores = zeros(p.pomdp.n_deposits)
+    for i in 1:p.pomdp.n_deposits
+        if can_explore_here(Action("MINE$(i)"), b)
+            score = mean(b.deposit_dists[i]) - p.lambda * std(b.deposit_dists[i])
         else
             score = -Inf
         end
@@ -113,7 +113,7 @@ function POMDPs.action(p::ExploreNStepsPolicy, b::LiBelief)
         scores = zeros(p.pomdp.n_deposits)
         for i in 1:p.pomdp.n_deposits
             if can_explore_here(Action("MINE$(i)"), b)
-                score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions[i]
+                score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions
             else
                 score = -Inf
             end
@@ -154,7 +154,7 @@ function POMDPs.action(p::EmissionAwarePolicy, b::LiBelief)
     scores = zeros(p.pomdp.n_deposits)
     for i in 1:p.pomdp.n_deposits
         if can_explore_here(Action("MINE$(i)"), b)
-            score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions[i]
+            score = mean(b.deposit_dists[i]) / p.pomdp.CO2_emissions
         else
             score = -Inf
         end
@@ -174,11 +174,7 @@ function POMDPs.updater(policy::POMCPOWPlanner{LiPOMDP,POMCPOW.POWNodeFilter,Max
     return LiBeliefUpdater(policy.problem)
 end
 
-function POMDPs.updater(policy::MCTS.DPWPlanner{GenerativeBeliefMDP{LiPOMDP,LiBeliefUpdater,LiBelief{Normal{Float64}},Action},
-    LiBelief{Normal{Float64}},
-    Action,
-    MCTS.SolvedRolloutEstimator{EfficiencyPolicyWithUncertainty,Random.AbstractRNG},
-    RandomActionGenerator{Random.AbstractRNG},MCTS.var"#18#22",Random.AbstractRNG})
+function POMDPs.updater(policy::MCTS.DPWPlanner)
     return LiBeliefUpdater(policy.solved_estimate.policy.pomdp)
 end
 

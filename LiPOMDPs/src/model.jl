@@ -39,7 +39,7 @@ end
     V_deposit_min::Float64 #min and max amount per singular deposit
     V_deposit_max::Float64
     obj_weights::Vector{Float64}  # how we want to weight each component of the reward
-    CO2_emissions::Int64  
+    CO2_emissions::Int64 
     CO2_cost::Int64  
     null_state::State
     init_state::State
@@ -95,6 +95,7 @@ function initialize_lipomdp(;
         V_deposit_max=V_deposit_max,
         obj_weights=obj_weights,
         CO2_emissions=CO2_emissions,
+        CO2_cost=CO2_cost,
         null_state=null_state,
         init_state=init_state,
         site_to_dist=site_to_dist,
