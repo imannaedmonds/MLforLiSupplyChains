@@ -144,13 +144,13 @@ function compute_emission_cost(P::LiPOMDP, s::State, a::Action)
     # Check if this is a new mine action
     if action_type == "MINE" && !s.have_mined[site_num]
         # Calculate emission cost for new mining action
-        emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost
+        emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost[site_num]
     end
     
     # Calculate ongoing emission costs from already operating mines
     for i in 1:P.n_deposits
         if s.have_mined[i]
-            emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost
+            emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost[i]
         end
     end
     
