@@ -1,10 +1,21 @@
-# MLforLiSupplyChains
-
 # LiPOMDPs: Modeling Lithium Resource Management Using POMDPs
 
 ## Overview
 
 LiPOMDPs is a computational framework for modeling the US path to lithium self-sufficiency using Partially Observable Markov Decision Processes (POMDPs). This project addresses the strategic challenges of lithium resource management, balancing domestic vs. foreign mining decisions while considering environmental impacts, economic costs, and uncertainty in resource availability.
+
+This repository builds upon research conducted by the Stanford Intelligent Systems Laboratory (SISL) and collaborators, as described in their 2023 paper:
+
+> **Managing Geological Uncertainty in Critical Mineral Supply Chains: A POMDP Approach with Application to U.S. Lithium Resources**  
+> Mansur Arief, Yasmine Alonso, CJ Oshiro, William Xu, Anthony Corso, David Zhen Yin, Jef K. Caers, Mykel J. Kochenderfer
+
+While the original implementation provided the foundational POMDP model for lithium resource management, this extension introduces several significant enhancements:
+
+1. Implementation of new policy types for comparative analysis
+2. Advanced Pareto curve generation for multi-objective optimization
+3. Integration of NPV (Net Present Value) and emission cost trade-off analysis
+4. Enhanced visualization tools for policy evaluation
+5. Additional simulation capabilities for stochastic vs. deterministic pricing scenarios
 
 The framework allows for the modeling and comparison of various lithium sourcing policies including:
 - MCTS (Monte Carlo Tree Search)
@@ -27,7 +38,7 @@ This implementation enables the generation of Pareto-optimal curves analyzing th
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/imannaedmonds/MLforLiSupplyChains.git 
+git clone https://github.com/your-username/LiPOMDPs.git
 cd LiPOMDPs
 ```
 
@@ -153,6 +164,28 @@ Most experiment scripts generate plots that are saved as PNG files. These visual
 - Line plots showing performance over time
 
 The plots are automatically saved in the working directory with descriptive filenames.
+
+## Citing This Work
+
+If you use this code in your research, please cite both the original paper and this implementation:
+
+```
+@article{arief2023managing,
+  title={Managing Geological Uncertainty in Critical Mineral Supply Chains: A POMDP Approach with Application to U.S. Lithium Resources},
+  author={Arief, Mansur and Alonso, Yasmine and Oshiro, CJ and Xu, William and Corso, Anthony and Yin, David Zhen and Caers, Jef K. and Kochenderfer, Mykel J.},
+  year={2023},
+  publisher={Stanford Intelligent Systems Laboratory}
+}
+
+@misc{LiPOMDPs_extension,
+  author = {Anna Edmonds},
+  title = {Extended LiPOMDPs Framework: Advanced Modeling for Lithium Resource Management},
+  year = {2025},
+  publisher = {GitHub},
+  note = {Built upon original work by Alonso, Y., Arief, M., Corso, A., Caers, J., Kochenderfer, M., Oshiro, CJ., and Edmonds, A.},
+  howpublished = {\url{https://github.com/imannaedmonds/MLforLiSupplyChains}}
+}
+```
 
 ## Contact
 

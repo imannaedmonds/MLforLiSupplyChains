@@ -1,6 +1,6 @@
 #=
 Original Authors: Yasmine Alonso, Mansur Arief, Anthony Corso, Jef Caers, and Mykel Kochenderfer
-Extended by: CJ Oshiro, Mansur Arief, Mykel Kochenderfer, Anna Edmonds
+Extended by: Anna Edmonds
 ----------------
 =#
 
@@ -56,8 +56,12 @@ function POMDPs.actions(P::LiPOMDP)
     return vcat(potential_mine_actions, potential_explore_actions)
     
 end
+# ====================================================
+# INDIVIDUAL REWARD COMPONENTS
+# ====================================================
 
-function compute_r1(P::LiPOMDP, s::State, a::Action; domestic_mining_penalty=-2000)
+# r1: Penalty for mining domestically before the time goal
+function compute_r1(P::LiPOMDP, s::State, a::Action; domestic_mining_penalty=-1000)
     action_type = get_action_type(a)
     site_num = get_site_number(a)
     domestic_mining_actions = ["MINE1", "MINE2"]
@@ -68,19 +72,22 @@ function compute_r1(P::LiPOMDP, s::State, a::Action; domestic_mining_penalty=-20
         penalty = 0
     end
         
-    return s.t <= P.t_goal && a in domestic_mining_actions ? penalty : 0
+    return s.t <= P.t_goal && a.a in domestic_mining_actions ? penalty : 0
 end
 
+# r2: Maximize lithium volume mined
 function compute_r2(P::LiPOMDP, s::State, a::Action)
     return (domestic=s.Vₜ, imported=s.Iₜ) 
 end
 
+#=
+# r3: Minimize CO2 emissions
 function compute_r3(P::LiPOMDP, s::State, a::Action)
     action_type = get_action_type(a) 
     site_num = get_site_number(a)
 
     if action_type == "MINE" && !s.have_mined[site_num]
-        new_emission = get_action_emission(P, a)
+        new_emission = -P.CO2_emissions  # Negative because emissions are costs
     else
         new_emission = 0
     end
@@ -94,12 +101,15 @@ function compute_r3(P::LiPOMDP, s::State, a::Action)
 
     return new_emission + existing_emissions
 end
+=#
 
-function compute_r4(P::LiPOMDP, s::State, a::Action; demand_unfulfilled_penalty=-100)
-    production = sum(s.have_mined)*P.mine_output
+# r4: Satisfy demand at every timestep
+function compute_r4(P::LiPOMDP, s::State, a::Action; demand_unfulfilled_penalty=-150)
+    production = sum(s.have_mined) * P.mine_output
     return P.demands[Int(s.t)] > production ? demand_unfulfilled_penalty : 0
 end
 
+# Calculate cashflow for mines
 function compute_cashflow(P::LiPOMDP, s::State)
     reward = 0
     for i in 1:P.n_deposits
@@ -116,11 +126,14 @@ function compute_cashflow(P::LiPOMDP, s::State)
     return reward
 end
 
-function compute_r5(P::LiPOMDP, s::State, a::Action; capex_per_mine=-500, opex_per_mine=-25, price=50)
+# r5: Maximize profit (revenue - costs)
+function compute_r5(P::LiPOMDP, s::State, a::Action; capex_per_mine=-500, opex_per_mine=-25, price=100)
     reward = 0
 
+    # Revenue from operating mines
     reward += compute_cashflow(P, s)
 
+    # Handle capital expenditure for new mine
     action_type = get_action_type(a)
     site_num = get_site_number(a)
 
@@ -128,121 +141,113 @@ function compute_r5(P::LiPOMDP, s::State, a::Action; capex_per_mine=-500, opex_p
         reward += capex_per_mine
     end
 
-    reward += opex_per_mine*sum(s.have_mined)
+    # Operating costs for all active mines
+    reward += opex_per_mine * sum(s.have_mined)
 
     return reward
 end
 
-# New function for computing emission costs
-function compute_emission_cost(P::LiPOMDP, s::State, a::Action)
-    action_type = get_action_type(a) 
-    site_num = get_site_number(a)
-    
-    # Calculate new emissions for this action
-    emission_cost = 0
-    
-    # Check if this is a new mine action
-    if action_type == "MINE" && !s.have_mined[site_num]
-        # Calculate emission cost for new mining action
-        emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost[site_num]
-    end
-    
-    # Calculate ongoing emission costs from already operating mines
-    for i in 1:P.n_deposits
-        if s.have_mined[i]
-            emission_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost[i]
-        end
-    end
-    
-    return emission_cost
-end
+# ====================================================
+# COMBINED REWARD COMPONENTS FOR TRADEOFF ANALYSIS
+# ====================================================
 
-# New function for computing NPV
-function compute_npv(P::LiPOMDP, s::State, a::Action)
+# Calculate emission cost by combining r3 with monetary CO2 costs
+function compute_emission_cost(P::LiPOMDP, s::State, a::Action)
+    
+    # Add monetary CO2 costs based on CO2_cost parameter
     action_type = get_action_type(a)
     site_num = get_site_number(a)
     
-    # Calculate revenue from existing mines
-    revenue = compute_cashflow(P, s)
-    
-    # Calculate costs for operating mines
-    opex_per_mine = -25
-    capex_per_mine = -500
-    operating_costs = opex_per_mine * sum(s.have_mined)
-    
-    # Add capital expenditure for new mine
+    # Calculate monetary cost for new mine
+    new_monetary_cost = 0
+
     if action_type == "MINE" && !s.have_mined[site_num]
-        operating_costs += capex_per_mine
+        new_monetary_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost[site_num]
     end
     
-    # Calculate NPV as revenue minus costs
-    npv = revenue + operating_costs
+    # Add monetary cost for existing mines
+    old_monetary_cost = 0
+    for i in 1:P.n_deposits
+        if s.have_mined[i]
+            old_monetary_cost -= P.CO2_emissions * P.mine_output * P.CO2_cost[i]
+        end
+    end
+    
+    # Return combined environmental impact and monetary cost
+    return old_monetary_cost + new_monetary_cost
+end
+
+# Calculate NPV by combining relevant economic components
+function compute_npv(P::LiPOMDP, s::State, a::Action)
+    # Start with base profit (r5)
+    npv = compute_r5(P, s, a)
+    
+    # Add domestic mining timing penalty (r1)
+    npv += compute_r1(P, s, a)
+    
+    # Add demand satisfaction penalty (r4)
+    npv += compute_r4(P, s, a)
     
     return npv
 end
 
-# New function for computing the NPV-emission cost tradeoff
+# Calculate volume reward (production component)
+function compute_volume_reward(P::LiPOMDP, s::State, a::Action)
+    volumes = compute_r2(P, s, a)
+    return volumes.domestic + volumes.imported
+end
+
+# Combined NPV-emission tradeoff function
 function compute_npv_emission_tradeoff(P::LiPOMDP, s::State, a::Action)
-    # Calculate emission costs (negative value)
-    emission_cost = compute_emission_cost(P, s, a)
-    
-    # Calculate NPV
+    # Calculate NPV component
     npv = compute_npv(P, s, a)
     
-    # Weighted sum based on alpha parameter
-    # alpha = 1: focus only on NPV
-    # alpha = 0: focus only on reducing emission costs
-    emission_scaling = 25 
-    emission_term = (1 - P.alpha) * emission_cost * emission_scaling
-    npv_term = P.alpha * npv
+    # Calculate emission cost component
+    emission_cost = compute_emission_cost(P, s, a)
     
-    return emission_term + npv_term
+    # Calculate volume component (r2)
+    volume = compute_volume_reward(P, s, a)
+    
+    # Apply alpha weighting
+    npv_term = P.alpha * npv
+    emission_term = (1 - P.alpha) * emission_cost
+    
+    # Always include a small weight for volume to ensure production is valued
+    volume_term = 0.1 * volume
+    
+    return npv_term + emission_term + volume_term
 end
 
-function compute_reward_tradeoff(P::LiPOMDP, s::State, a::Action)
-    emissions_reward = P.alpha * compute_r3(P, s, a)
-    volume_reward = (1 - P.alpha) * sum(compute_r2(P, s, a)) * 4.866658
-    return emissions_reward + volume_reward
-end
+# ====================================================
+# MAIN REWARD FUNCTION
+# ====================================================
 
+# Main reward function for the LiPOMDP
 function POMDPs.reward(P::LiPOMDP, s::State, a::Action)
     if isterminal(P, s)
         return 0
     end
 
     if P.compute_tradeoff
-        if hasfield(typeof(P), :CO2_cost) # Check if we're using the new NPV-emission model
-            return compute_npv_emission_tradeoff(P, s, a)
-        else # Use the original tradeoff model
-            return compute_reward_tradeoff(P, s, a)
-        end
+        # Use NPV-emission tradeoff mode
+        return compute_npv_emission_tradeoff(P, s, a)
+    else
+        # Use original reward calculation with individual components
+        demand_unfulfilled_penalty = -150
+        domestic_mining_penalty = -1000
+        capex_per_mine = -25
+        opex_per_mine = -10
+        material_price = 100
+
+        # Individual reward components
+        r1 = compute_r1(P, s, a, domestic_mining_penalty=domestic_mining_penalty)
+        r2 = sum(compute_r2(P, s, a))
+        r3 = compute_emission_cost(P, s, a)
+        r4 = compute_r4(P, s, a, demand_unfulfilled_penalty=demand_unfulfilled_penalty)
+        r5 = compute_r5(P, s, a, capex_per_mine=capex_per_mine, opex_per_mine=opex_per_mine, price=material_price)
+        
+        return dot([r1, r2, r3, r4, r5], P.obj_weights)
     end
-
-    #TODO: move these to the problem struct
-    demand_unfulfilled_penalty = -150
-    domestic_mining_penalty = -1000
-    capex_per_mine = -25
-    opex_per_mine = -10
-    material_price = 100
-
-    # Obj #1: delay mining domestically P.t_goal years, and if we do that before P.t_goal, we are penalized
-    r1 = compute_r1(P, s, a, domestic_mining_penalty=domestic_mining_penalty)
-    
-    # Obj #2: maximize the amount of Li mined
-    r2 = sum(compute_r2(P, s, a))
-
-    # Obj #3: minimize CO2 emissions
-    r3 = compute_r3(P, s, a)
-
-    # Obj #4: satisfy the demand at everytimestep
-    r4 = compute_r4(P, s, a, demand_unfulfilled_penalty=demand_unfulfilled_penalty)
-
-    # Obj #5: maximize profit
-    r5 = compute_r5(P, s, a, capex_per_mine=capex_per_mine, opex_per_mine=opex_per_mine, price=material_price)
-
-    reward = dot([r1, r2, r3, r4, r5], P.obj_weights) 
-
-    return reward
 end
 
 

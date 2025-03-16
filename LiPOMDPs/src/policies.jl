@@ -200,6 +200,7 @@ function ImportOnlyPolicy(pomdp::LiPOMDP, explore_steps::Int64, curr_steps::Int6
         curr_steps=curr_steps, explored_sites=explored_sites)
 end
 
+# TODO dont I need to penalize import only?
 function POMDPs.action(p::ImportOnlyPolicy, b::LiBelief)
     chosen_action = nothing
 

@@ -70,7 +70,7 @@ function initialize_lipomdp(;
     CO2_emissions= 15, #per a thousand ton you emit 15 thousand tons of CO2
     CO2_cost = [80, 200, 400, 600],  #per a thousand ton your cost is 185,000
     null_state=State([-1, -1, -1, -1], -1, -1, -1, [true, true, true, true]),
-    init_state=State([16.0, 60.0, 60.0, 50.0], 1, 0.0, 0.0, [false, false, false, false]), # a thousand tons a year SilverPeak and ThackerPass  are domestic, Greenbushes and Pilgangoora are foreign 
+    init_state=State([5.0, 60.0, 160.0, 44.0], 1, 0.0, 0.0, [false, false, false, false]), # a thousand tons a year SilverPeak and ThackerPass  are domestic, Salar de Atacama (Chile) and Pilgangoora (Australia) are foreign 
     site_to_dist=Dict(1=>Normal(15000,3), 2=>Normal(70000,10), 3=>Normal(40000,5), 4=>Normal(10000,4)), #a thousand ton of Li -- a thousand dollars (1k of Li is approx 10M)
     stochastic_price=false,
     alpha=1, # Default reward

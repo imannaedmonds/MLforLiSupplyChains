@@ -106,21 +106,13 @@ function compute_policy_results(policy_generator;
             CO2_cost=[carbon_price, carbon_price, carbon_price, carbon_price]  # Use the same price for all sites
         )
         
-        # Generate initial belief if a generator is provided
-        initial_belief = nothing
-        if initial_belief_generator !== nothing
-            initial_belief = initial_belief_generator(pomdp)
-        end
+        initial_belief = initial_belief_generator(pomdp)
         
         # Create policy using the generator function
         policy = policy_generator(pomdp)
         
         # Run experiment
-        if initial_belief !== nothing
-            results[carbon_price] = experiment(policy, pomdp, n_reps, max_steps, initial_belief=initial_belief)
-        else
-            results[carbon_price] = experiment(policy, pomdp, n_reps, max_steps)
-        end
+        results[carbon_price] = experiment(policy, pomdp, n_reps, max_steps, initial_belief=initial_belief)
     end
     
     return results
