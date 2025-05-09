@@ -1,163 +1,186 @@
-using Random
-using POMDPs
-using POMDPTools
-using LiPOMDPs
-using MCTS
-using DiscreteValueIteration
-using POMCPOW
-using Distributions
-using Parameters
-using Plots
-using Statistics
-using ProgressBars
+# Import without other commands doesn't do anything
+using Distributed # Do this to get access to @everywhere function
 
-"""
-This script generates Pareto curves showing the tradeoff between NPV and emission costs
-by varying the alpha parameter in the LiPOMDP model.
-
-Alpha values tested: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-Alpha controls the tradeoff between NPV (alpha=1.0) and emission costs (alpha=0.0)
-"""
-
-rng = MersenneTwister(1)
-
-function compute_metrics(samples)
-    sample_mean = mean(samples)
-    n = length(samples)
-    sample_se = std(samples) / sqrt(n)
-    return (mean=sample_mean, se=sample_se)
+if nworkers()== 1
+    addprocs(1) # How many threads you can have -- use nproc to find the number for each machine
 end
-
-# Experiment function to evaluate policies with alpha variations
-function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief=nothing)
-    # Arrays to store results
-    npv_all = []
-    emission_cost_all = []
-    co2_emitted_all = []
-    domestic_all = []
-    imported_all = []
-
-    for t in tqdm(1:n_reps)
-        # Variables to track total values
-        npv_tot = 0.0
-        emission_cost_tot = 0.0
-        co2_emitted_tot = 0.0
-        domestic_tot = 0.0
-        imported_tot = 0.0
-        disc = 1.0  # Discount factor
-
-        # Set up the step iterator
-        if initial_belief !== nothing
-            up = updater(planner) 
-            step_iter = stepthrough(eval_pomdp, planner, up, initial_belief, "s,a,o,r", max_steps=max_steps)
-        else
-            step_iter = stepthrough(eval_pomdp, planner, "s,a,o,r", max_steps=max_steps)
-        end
-
-        # Simulate steps
-        for (s, a, o, r) in step_iter
-            # Calculate NPV separately for tracking
-            npv = compute_npv(eval_pomdp, s, a)
-            npv_tot += npv * disc
-            
-            # Calculate emission cost separately for tracking
-            emission_cost = compute_emission_cost(eval_pomdp, s, a)
-            emission_cost_tot += emission_cost * disc
-            
-            # Track actual CO2 emissions (not the cost)
-            action_type = get_action_type(a)
-            site_num = get_site_number(a)
-            
-            # Calculate new emissions
-            new_emission = 0
-            if action_type == "MINE" && !s.have_mined[site_num]
-                new_emission = eval_pomdp.CO2_emissions
-            end
-            
-            # Add existing emissions
-            for i in 1:eval_pomdp.n_deposits
-                if s.have_mined[i]
-                    new_emission += eval_pomdp.CO2_emissions
-                end
-            end
-            
-            co2_emitted_tot += new_emission * disc
-            
-            # Track mining actions
-            if a.a == "MINE1" || a.a == "MINE2"
-                domestic_tot += 1
-            elseif a.a == "MINE3" || a.a == "MINE4"
-                imported_tot += 1
-            end
-            
-            disc *= discount(eval_pomdp)
-        end
+    # Begin vs end -- let is local-scoped
+    # @everywhere before you get the code you want to compile on this host + all other processes
+@everywhere begin # Macro that will take all code within begin / end 
         
-        # Store results
-        push!(npv_all, npv_tot)
-        push!(emission_cost_all, emission_cost_tot)
-        push!(co2_emitted_all, co2_emitted_tot)
-        push!(domestic_all, domestic_tot)
-        push!(imported_all, imported_tot)
+    #__precompile__(false)
+
+
+    using Random
+    using POMDPs
+    using POMDPTools
+    using LiPOMDPs
+    using MCTS
+    using DiscreteValueIteration
+    using POMCPOW
+    using Distributions
+    using Parameters
+    using Plots
+    using Statistics
+    using ProgressBars
+    using StatsBase
+
+
+    """
+    This script generates Pareto curves showing the tradeoff between NPV and emission costs
+    by varying the alpha parameter in the LiPOMDP model.
+
+    Alpha values tested: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    Alpha controls the tradeoff between NPV (alpha=1.0) and emission costs (alpha=0.0)
+    """
+
+    rng = MersenneTwister(1)
+
+    function compute_metrics(samples)
+        sample_mean = mean(samples)
+        n = length(samples)
+        sample_se = std(samples) / sqrt(n)
+        return (mean=sample_mean, se=sample_se)
     end
 
-    # Compute metrics
-    results = Dict(
-        "NPV" => compute_metrics(npv_all),
-        "Emission Cost" => compute_metrics(emission_cost_all),
-        "CO2 Emitted" => compute_metrics(co2_emitted_all),
-        "Domestic Mining" => compute_metrics(domestic_all),
-        "Imported Mining" => compute_metrics(imported_all),
-        "Total Mining" => compute_metrics(domestic_all .+ imported_all)
-    )
+    # Experiment function to evaluate policies with alpha variations
+    function experiment(planner, eval_pomdp, n_reps=20, max_steps=30; initial_belief=nothing)
+        # Arrays to store results
+        npv_all = []
+        emission_cost_all = []
+        co2_emitted_all = []
+        domestic_all = []
+        imported_all = []
+        action_trajectories = [String[] for _ in 1:max_steps]
 
-    return results
-end
 
-# Policy generator functions
-function create_pomcpow_planner(pomdp)
-    solver = POMCPOW.POMCPOWSolver(
-        tree_queries=1000, 
-        estimate_value=estimate_value,
-        k_observation=4.0, 
-        alpha_observation=0.1, 
-        max_depth=15, 
-        enable_action_pw=false,
-        init_N=10  
-    )
-    return solve(solver, pomdp)
-end
+        for t in tqdm(1:n_reps) #n_reps is the number of samples
+            # Variables to track total values
+            npv_tot = 0.0
+            emission_cost_tot = 0.0
+            co2_emitted_tot = 0.0
+            domestic_tot = 0.0
+            imported_tot = 0.0
+            disc = 1.0  # Discount factor
+            step_idx = 1
 
-function create_mcts_planner(pomdp)
-    up = LiBeliefUpdater(pomdp)
-    mdp = GenerativeBeliefMDP(pomdp, up, terminal_behavior=ContinueTerminalBehavior(pomdp, up))
-    rollout_policy = EfficiencyPolicyWithUncertainty(pomdp, 1.0, [true, true, true, true])
-    
-    mcts_solver = DPWSolver(
-        depth=10,
-        n_iterations=100,
-        estimate_value=RolloutEstimator(rollout_policy),
-        enable_action_pw=false,
-        enable_state_pw=true,
-        k_state=4.0,
-        alpha_state=0.1
-    )
-    
-    return solve(mcts_solver, mdp)
-end
+            # Set up the step iterator
+            if initial_belief !== nothing
+                up = updater(planner) 
+                step_iter = stepthrough(eval_pomdp, planner, up, initial_belief, "s,a,o,r", max_steps=max_steps)
+            else
+                step_iter = stepthrough(eval_pomdp, planner, "s,a,o,r", max_steps=max_steps)
+            end
 
-function create_explore_n_steps_planner(pomdp, n_steps=20)
-    return ExploreNStepsPolicy(pomdp=pomdp, explore_steps=n_steps, curr_steps=1)
-end
+            # Simulate steps
+            for (s, a, o, r) in step_iter #collect actions and create histograms over the samples, extract the action and make it part of the output and not only the reward
 
-function create_import_only_planner(pomdp, n_steps=20)
-    return ImportOnlyPolicy(pomdp=pomdp, explore_steps=n_steps)
-end
+                # Calculate NPV separately for tracking
+                npv = compute_npv(eval_pomdp, s, a)
+                npv_tot += npv * disc
+                
+                # Calculate emission cost separately for tracking
+                emission_cost = compute_emission_cost(eval_pomdp, s, a)
+                emission_cost_tot += emission_cost * disc
+                
+                # Track actual CO2 emissions (not the cost)
+                action_type = get_action_type(a)
+                site_num = get_site_number(a)
+                
+                # Calculate new emissions
+                new_emission = 0
+                if action_type == "MINE" && !s.have_mined[site_num]
+                    new_emission = eval_pomdp.CO2_emissions
+                end
+                
+                # Add existing emissions
+                for i in 1:eval_pomdp.n_deposits
+                    if s.have_mined[i]
+                        new_emission += eval_pomdp.CO2_emissions
+                    end
+                end
+                
+                co2_emitted_tot += new_emission * disc
+                
+                # Track mining actions
+                if a.a == "MINE1" || a.a == "MINE2"
+                    domestic_tot += 1
+                elseif a.a == "MINE3" || a.a == "MINE4"
+                    imported_tot += 1
+                end
 
-function create_import_only_belief(pomdp)
-    updater = LiBeliefUpdater(pomdp)
-    return initialize_belief_import_only(updater)
-end
+                if step_idx <= max_steps
+                    push!(action_trajectories[step_idx], a.a)
+                end
+
+                step_idx += 1
+                disc *= discount(eval_pomdp)
+            end
+
+            push!(npv_all, npv_tot)
+            push!(emission_cost_all, emission_cost_tot)
+            push!(co2_emitted_all, co2_emitted_tot)
+            push!(domestic_all, domestic_tot)
+            push!(imported_all, imported_tot)
+        end
+
+        results = Dict(
+            "NPV" => compute_metrics(npv_all),
+            "Emission Cost" => compute_metrics(emission_cost_all),
+            "CO2 Emitted" => compute_metrics(co2_emitted_all),
+            "Domestic Mining" => compute_metrics(domestic_all),
+            "Imported Mining" => compute_metrics(imported_all),
+            "Total Mining" => compute_metrics(domestic_all .+ imported_all)
+        )
+
+        return results, action_trajectories
+    end
+
+    # Policy generator functions
+    function create_pomcpow_planner(pomdp)
+        solver = POMCPOW.POMCPOWSolver(
+            tree_queries=1000, 
+            estimate_value=estimate_value,
+            k_observation=4.0, 
+            alpha_observation=0.1, 
+            max_depth=15, 
+            enable_action_pw=false,
+            init_N=10  
+        )
+        return solve(solver, pomdp)
+    end
+
+    function create_mcts_planner(pomdp)
+        up = LiBeliefUpdater(pomdp)
+        mdp = GenerativeBeliefMDP(pomdp, up, terminal_behavior=ContinueTerminalBehavior(pomdp, up))
+        rollout_policy = EfficiencyPolicyWithUncertainty(pomdp, 1.0, [true, true, true, true])
+        
+        mcts_solver = DPWSolver(
+            depth=10,
+            n_iterations=100,
+            estimate_value=RolloutEstimator(rollout_policy),
+            enable_action_pw=false,
+            enable_state_pw=true,
+            k_state=4.0,
+            alpha_state=0.1
+        )
+        
+        return solve(mcts_solver, mdp)
+    end
+
+    function create_explore_n_steps_planner(pomdp, n_steps=20)
+        return ExploreNStepsPolicy(pomdp=pomdp, explore_steps=n_steps, curr_steps=1)
+    end
+
+    function create_import_only_planner(pomdp, n_steps=20)
+        return ImportOnlyPolicy(pomdp=pomdp, explore_steps=n_steps)
+    end
+
+    function create_import_only_belief(pomdp)
+        updater = LiBeliefUpdater(pomdp)
+        return initialize_belief_import_only(updater)
+    end
+end #@everywhere for the parallelization
 
 # Function to plot NPV vs Emission Cost Pareto curve for alpha variation
 function plot_alpha_pareto(results_dict)
@@ -237,7 +260,7 @@ function plot_alpha_pareto(results_dict)
     end
     
     # Save the figure
-    savefig(p, "npv_emission_alpha_pareto.png")
+    savefig(p, "npv_emission_alpha_pareto5.png")
     return p
 end
 
@@ -319,18 +342,38 @@ function plot_alpha_co2_emitted_pareto(results_dict)
     end
     
     # Save the figure
-    savefig(p, "npv_co2_emitted_alpha_pareto.png")
+    savefig(p, "npv_co2_emitted_alpha_pareto5.png")
     return p
+end
+
+function plot_action_histograms(action_trajectories, alpha, policy_name)
+    for (t, actions) in enumerate(action_trajectories)
+        action_counts = countmap(actions)
+        labels = collect(keys(action_counts))
+        freqs = collect(values(action_counts))
+
+        bar(
+            labels, 
+            freqs,
+            xlabel="Action",
+            ylabel="Frequency",
+            title="Policy: $policy_name | α=$alpha | Step $t",
+            legend=false,
+            size=(600, 400),
+            rotation=45
+        )
+        savefig("histogram_{policy_name}_alpha$(alpha)_step$t.png")
+    end
 end
 
 function main()
     # Settings
     n_reps = 20  # Number of repetitions
     max_steps = 30  # Maximum steps per simulation
-    stochastic_price = false  # Use deterministic prices
+    stochastic_price = true  # Use deterministic prices
     
     # Define alpha values to test
-    alpha_values = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]  # As specified
+    alpha_values = [0.1, 1.0]  # As specified
     
     # Store results for each policy
     results_dict = Dict(
@@ -339,12 +382,20 @@ function main()
         "ExploreNSteps" => Dict(),
         "ImportOnly" => Dict()
     )
+
+    action_logs_dict = Dict(
+                "POMCPOW" => Dict{Float64, Vector{Vector{String}}}(),
+                "MCTS" => Dict{Float64, Vector{Vector{String}}}(),
+                "ExploreNSteps" => Dict{Float64, Vector{Vector{String}}}(),
+                "ImportOnly" => Dict{Float64, Vector{Vector{String}}}()
+            )
+
     
     # For each policy type, test with different alpha values
     for policy_type in keys(results_dict)
         println("\nTesting $policy_type with different alpha values:")
-        
-        for alpha in alpha_values
+
+        @distributed vcat for alpha in alpha_values #parallelized code with Rob
             println("  Testing alpha = $alpha")
             
             # Create POMDP with this alpha and consistent CO2 costs
@@ -358,21 +409,30 @@ function main()
             # Create and evaluate the appropriate planner
             if policy_type == "POMCPOW"
                 planner = create_pomcpow_planner(pomdp)
-                results = experiment(planner, pomdp, n_reps, max_steps)
+                results, action_trajectories = experiment(planner, pomdp, n_reps, max_steps) #evaluation 
             elseif policy_type == "MCTS"
                 planner = create_mcts_planner(pomdp)
-                results = experiment(planner, pomdp, n_reps, max_steps)
+                results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps)
             elseif policy_type == "ExploreNSteps"
                 planner = create_explore_n_steps_planner(pomdp, 20)
-                results = experiment(planner, pomdp, n_reps, max_steps)
+                results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps)
             elseif policy_type == "ImportOnly"
                 initial_belief = create_import_only_belief(pomdp)
                 planner = create_import_only_planner(pomdp, 20)
-                results = experiment(planner, pomdp, n_reps, max_steps, initial_belief=initial_belief)
+                results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps, initial_belief=initial_belief)
             end
             
-            # Store results
+            #Store results and action logs 
             results_dict[policy_type][alpha] = results
+            action_logs_dict[policy_type][alpha] = action_trajectories
+        end
+    end
+
+    println("\nGenerating action histograms over time...")
+    for policy_name in keys(action_logs_dict)
+        for alpha in keys(action_logs_dict[policy_name])
+            println("  Policy: $policy_name, α=$alpha")
+            plot_action_histograms(action_logs_dict[policy_name][alpha], alpha, policy_name)
         end
     end
     
@@ -382,11 +442,11 @@ function main()
     p2 = plot_alpha_co2_emitted_pareto(results_dict)
     
     println("\nPareto curves generated and saved as:")
-    println("  - 'npv_emission_alpha_pareto2.png'")
-    println("  - 'npv_co2_emitted_alpha_pareto2.png'")
+    println("  - 'npv_emission_alpha_pareto5.png'")
+    println("  - 'npv_co2_emitted_alpha_pareto5.png'")
     
     return results_dict, p1, p2
 end
 
-# Run the main function
+
 main()

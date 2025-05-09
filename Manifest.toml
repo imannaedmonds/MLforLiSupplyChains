@@ -2,7 +2,7 @@
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "a7e016a3ea3fc15922b4e43e7da6c890df75d057"
+project_hash = "6d76e0a15f5519db945667f54629512471a9318f"
 
 [[deps.ARDESPOT]]
 deps = ["BasicPOMCP", "CPUTime", "D3Trees", "POMDPTools", "POMDPs", "Parameters", "ParticleFilters", "Printf", "Random"]
