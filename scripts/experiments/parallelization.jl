@@ -1,5 +1,5 @@
 using Distributed
-nworkers() == 1 && addprocs(1)  # Add worker if only running with single worker
+nworkers() == 2 && addprocs(4)  # Add worker if only running with single worker
 
 @everywhere begin
     using Random, POMDPs, POMDPTools, LiPOMDPs, MCTS, DiscreteValueIteration
@@ -90,7 +90,7 @@ nworkers() == 1 && addprocs(1)  # Add worker if only running with single worker
     # Create planners with appropriate parameters
     function create_pomcpow_planner(pomdp)
         solver = POMCPOW.POMCPOWSolver(
-            tree_queries=1000, estimate_value=estimate_value,
+            tree_queries=1000, estimate_vxalue=estimate_value,
             k_observation=4.0, alpha_observation=0.1, max_depth=15, 
             enable_action_pw=false, init_N=10
         )

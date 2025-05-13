@@ -55,7 +55,6 @@ include("policies.jl")
 
 export
     #Functions
-    initialize_belief_import_only,
     compute_r1,
     compute_r2,
     compute_r3,
@@ -63,7 +62,8 @@ export
     compute_r5,
     compute_npv,             # Add these new functions
     compute_emission_cost,   # to your exports
-    compute_npv_emission_tradeoff
+    compute_npv_emission_tradeoff,
+    initialize_belief_import_only
 include("pomdp.jl")
 
 end #module
