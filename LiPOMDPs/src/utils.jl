@@ -17,6 +17,13 @@ function POMCPOW.estimate_value(
     return s.Vₜ < P.Vₜ_goal ? -100.0 : 0.0
 end
 
+
+#new function
+function POMCPOW.estimate_value(
+        P::LiPOMDP, s::State, h::POWTreeObsNode, steps::Int64)
+    return s.Vₜ < P.Vₜ_goal ? -100.0 : 0.0
+end
+
 # Runs all simulations for every inputted policy
 function evaluate_policies(pomdp::LiPOMDP, policies::Vector, k::Int, max_steps::Int)
 

@@ -60,7 +60,7 @@ function initialize_lipomdp(;
     bin_edges=[0.25, 0.5, 0.75],
     cdf_threshold=0.1,
     min_n_units=3,
-    mine_output=2.0,
+    mine_output = 2.0,
     num_objectives=5,
     ΔV=1.0,
     Δdeposit=1.0,

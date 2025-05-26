@@ -23,6 +23,8 @@ using Distributed # Do this to get access to @everywhere function
         using Statistics
         using ProgressBars
         using StatsBase
+        using BSON
+
     
     
         """
@@ -109,7 +111,7 @@ using Distributed # Do this to get access to @everywhere function
                     end
     
                     if step_idx <= max_steps
-                        push!(action_trajectories[step_idx], a.a)
+                        push!(action_trajectories[step_idx], string(a.a))
                     end
     
                     step_idx += 1
@@ -135,19 +137,19 @@ using Distributed # Do this to get access to @everywhere function
             return results, action_trajectories
         end
     
-        # # Policy generator functions
-        # function create_pomcpow_planner(pomdp)
-        #     solver = POMCPOW.POMCPOWSolver(
-        #         tree_queries=1000, 
-        #         estimate_value=estimate_value,
-        #         k_observation=4.0, 
-        #         alpha_observation=0.1, 
-        #         max_depth=15, 
-        #         enable_action_pw=false,
-        #         init_N=10  
-        #     )
-        #     return solve(solver, pomdp)
-        # end
+        # Policy generator functions
+        function create_pomcpow_planner(pomdp)
+            solver = POMCPOW.POMCPOWSolver(
+                tree_queries=1000, 
+                estimate_value=estimate_value,
+                k_observation=4.0, 
+                alpha_observation=0.1, 
+                max_depth=15, 
+                enable_action_pw=false,
+                init_N=10  
+            )
+            return solve(solver, pomdp)
+        end
     
         function create_mcts_planner(pomdp)
             up = LiBeliefUpdater(pomdp)
@@ -344,112 +346,97 @@ using Distributed # Do this to get access to @everywhere function
         savefig(p, "pl_npv_co2_emitted_alpha_pareto.png")
         return p
     end
-    
-    # function plot_action_histograms(action_trajectories, alpha, policy_name)
-    #     for (t, actions) in enumerate(action_trajectories)
-    #         action_counts = countmap(actions)
-    #         labels = collect(keys(action_counts))
-    #         freqs = collect(values(action_counts))
-    
-    #         bar(
-    #             labels, 
-    #             freqs,
-    #             xlabel="Action",
-    #             ylabel="Frequency",
-    #             title="Policy: $policy_name | α=$alpha | Step $t",
-    #             legend=false,
-    #             size=(600, 400),
-    #             rotation=45
-    #         )
-    #         savefig("histogram_{policy_name}_alpha$(alpha)_step$t.png")
-    #     end
-    # end
-    
-    function main()
-        # Settings
-        n_reps = 20  # Number of repetitions
-        max_steps = 30  # Maximum steps per simulation
-        stochastic_price = true  # Use deterministic prices
-        
-        # Define alpha values to test
-        alpha_values = [0.1, 0.25, 0.5, 0.75, 1.0]  # As specified
-        
-        # Store results for each policy
-        results_dict = Dict(
-         #  "POMCPOW" => Dict(),
-            "MCTS" => Dict(),
-            "ExploreNSteps" => Dict(),
-            "ImportOnly" => Dict()
-        )
-    
-        action_logs_dict = Dict(
-                  #"POMCPOW" => Dict{Float64, Vector{Vector{String}}}(),
-                    "MCTS" => Dict{Float64, Vector{Vector{String}}}(),
-                    "ExploreNSteps" => Dict{Float64, Vector{Vector{String}}}(),
-                    "ImportOnly" => Dict{Float64, Vector{Vector{String}}}()
-                )
-    
 
-        # For each policy type, test with different alpha values
-        for policy_type in keys(results_dict)
-            println("\nTesting $policy_type with different alpha values:")
     
-            # Collect (alpha, results, actions) from workers
-            distributed_results = @distributed (vcat) for alpha in alpha_values
-                println("Testing alpha = $alpha")
-                # Create POMDP with this alpha and consistent CO2 costs
-                pomdp = initialize_lipomdp(
-                    alpha=alpha,
-                    stochastic_price=stochastic_price,
-                    compute_tradeoff=true,
-                )
-                
-                # Create and evaluate the appropriate planner
-                # if policy_type == "POMCPOW"
-                #     planner = create_pomcpow_planner(pomdp)
-                #     results, action_trajectories = experiment(planner, pomdp, n_reps, max_steps) #evaluation 
-                if policy_type == "MCTS"
-                    planner = create_mcts_planner(pomdp)
-                    results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps)
-                elseif policy_type == "ExploreNSteps"
-                    planner = create_explore_n_steps_planner(pomdp, 20)
-                    results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps)
-                elseif policy_type == "ImportOnly"
-                    initial_belief = create_import_only_belief(pomdp)
-                    planner = create_import_only_planner(pomdp, 20)
-                    results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps, initial_belief=initial_belief)
-                end
+function main()
+    # Settings
+    n_reps = 20  # Number of repetitions
+    max_steps = 30  # Maximum steps per simulation
+    stochastic_price = true  # Use deterministic prices
+    
+    # Define alpha values to test
+    alpha_values = [0.0, 0.06, 0.08, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0]  # As specified
+    
+    # Store results for each policy
+    results_dict = Dict(
+        "POMCPOW" => Dict(),
+        "MCTS" => Dict(),
+        "ExploreNSteps" => Dict(),
+        "ImportOnly" => Dict()
+    )
 
-                # Must return a 1-element array so vcat works
-                [(alpha, results, action_trajectories)]
-            end #end of @distributed
+    action_logs_dict = Dict(
+                "POMCPOW" => Dict{Float64, Vector{Vector{String}}}(),
+                "MCTS" => Dict{Float64, Vector{Vector{String}}}(),
+                "ExploreNSteps" => Dict{Float64, Vector{Vector{String}}}(),
+                "ImportOnly" => Dict{Float64, Vector{Vector{String}}}()
+            )
 
-                    # Now update shared results on the main process
-            for (alpha, results, actions) in distributed_results
-                results_dict[policy_type][alpha] = results
-                action_logs_dict[policy_type][alpha] = actions
+
+    # For each policy type, test with different alpha values
+    for policy_type in keys(results_dict)
+        println("\nTesting $policy_type with different alpha values:")
+
+        # Collect (alpha, results, actions) from workers
+        distributed_results = @distributed (vcat) for alpha in alpha_values
+            println("Testing alpha = $alpha")
+            # Create POMDP with this alpha and consistent CO2 costs
+            pomdp = initialize_lipomdp(
+                alpha=alpha,
+                stochastic_price=stochastic_price,
+                compute_tradeoff=true,
+                CO2_cost=[300, 300, 300, 300]
+            )
+            
+            #Create and evaluate the appropriate planner
+            if policy_type == "POMCPOW"
+                planner = create_pomcpow_planner(pomdp)
+                results, action_trajectories = experiment(planner, pomdp, n_reps, max_steps) #evaluation 
+            elseif policy_type == "MCTS"
+                planner = create_mcts_planner(pomdp)
+                results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps)
+            elseif policy_type == "ExploreNSteps"
+                planner = create_explore_n_steps_planner(pomdp, 20)
+                results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps)
+            elseif policy_type == "ImportOnly"
+                initial_belief = create_import_only_belief(pomdp)
+                planner = create_import_only_planner(pomdp, 20)
+                results, action_trajectories  = experiment(planner, pomdp, n_reps, max_steps, initial_belief=initial_belief)
             end
+
+            # Must return a 1-element array so vcat works
+            [(alpha, results, action_trajectories)]
+        end #end of @distributed
+
+                # Now update shared results on the main process
+        for (alpha, results, actions) in distributed_results
+            results_dict[policy_type][alpha] = results
+            action_logs_dict[policy_type][alpha] = actions
         end
-    
-        # println("\nGenerating action histograms over time...")
-        # for policy_name in keys(action_logs_dict)
-        #     for alpha in keys(action_logs_dict[policy_name])
-        #         println("  Policy: $policy_name, α=$alpha")
-        #         plot_action_histograms(action_logs_dict[policy_name][alpha], alpha, policy_name)
-        #     end
-        # end
-        
-        println(results_dict)
-        # Create Pareto curve plots
-        println("\nGenerating Pareto curve plots...")
-        p1 = plot_alpha_pareto(results_dict)
-        p2 = plot_alpha_co2_emitted_pareto(results_dict)
-        
-        println("\nPareto curves generated and saved as:")
-        println("  - 'pl_npv_emission_alpha_pareto.png'")
-        println("  - 'pl_npv_co2_emitted_alpha_pareto.png'")
-        
-        return results_dict, p1, p2
     end
+
     
-    main()
+    # Create Pareto curve plots
+    println("\nGenerating Pareto curve plots...")
+    p1 = plot_alpha_pareto(results_dict)
+    p2 = plot_alpha_co2_emitted_pareto(results_dict)
+    
+    println("\nPareto curves generated and saved as:")
+    println("  - 'pl_npv_emission_alpha_pareto.png'")
+    println("  - 'pl_npv_co2_emitted_alpha_pareto.png'")
+
+    # To save results as a .bson file:
+    BSON.@save "action_logs_dict_new.bson" action_logs_dict
+
+    return results_dict, action_logs_dict, p1, p2
+end
+
+re_run = true
+
+if re_run 
+    main() 
+end
+
+action_logs_dict = BSON.load("action_logs_dict_new.bson")[:action_logs_dict]
+
+#use binary json
